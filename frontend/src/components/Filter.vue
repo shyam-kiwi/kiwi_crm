@@ -10,7 +10,7 @@
         >
           <template v-if="filters?.size" #suffix>
             <div
-              class="flex h-5 w-5 items-center justify-center rounded-[5px] bg-surface-white pt-px text-xs font-medium text-ink-gray-8 shadow-sm"
+              class="flex h-5 w-5 items-center justify-center rounded-[5px] bg-surface-base pt-px text-xs-medium text-ink-gray-8 shadow-sm"
             >
               {{ filters.size }}
             </div>
@@ -20,14 +20,14 @@
           v-if="filters?.size"
           :tooltip="__('Clear All Filters')"
           class="rounded-l-none border-l"
-          icon="x"
+          icon="lucide-x"
           @click.stop="clearfilter(close)"
         />
       </div>
     </template>
     <template #body="{ close }">
       <div
-        class="my-2 min-w-40 rounded-lg bg-surface-modal shadow-2xl ring-1 ring-black ring-opacity-5 focus:outline-none"
+        class="my-2 min-w-40 rounded-lg bg-surface-elevation-2 shadow-2xl ring-1 ring-black ring-opacity-5 focus:outline-none"
       >
         <div class="min-w-72 p-2 sm:min-w-[400px]">
           <template v-if="filters?.size">
@@ -45,22 +45,23 @@
                   <Button
                     class="flex"
                     variant="ghost"
-                    icon="x"
+                    icon="lucide-x"
                     @click="removeFilter(i)"
                   />
                 </div>
                 <div id="fieldname" class="w-full">
-                  <Autocomplete
-                    :value="f.field.fieldname"
-                    :options="filterableFields.data"
+                  <Combobox
+                    trigger="button"
+                    :model-value="f.field.fieldname"
+                    :options="filterFieldOptions"
                     :placeholder="__('First Name')"
-                    @change="(e) => updateFilter(e, i)"
+                    @update:selected-option="(e) => updateFilter(e, i)"
                   />
                 </div>
                 <div id="operator">
-                  <FormControl
+                  <Combobox
                     v-model="f.operator"
-                    type="select"
+                    trigger="button"
                     :options="
                       getOperators(f.field.fieldtype, f.field.fieldname)
                     "
@@ -83,17 +84,18 @@
                     {{ i == 0 ? __('Where') : __('And') }}
                   </div>
                   <div id="fieldname" class="!min-w-[140px]">
-                    <Autocomplete
-                      :value="f.field.fieldname"
-                      :options="filterableFields.data"
+                    <Combobox
+                      trigger="button"
+                      :model-value="f.field.fieldname"
+                      :options="filterFieldOptions"
                       :placeholder="__('First Name')"
-                      @change="(e) => updateFilter(e, i)"
+                      @update:selected-option="(e) => updateFilter(e, i)"
                     />
                   </div>
                   <div id="operator">
-                    <FormControl
+                    <Combobox
                       v-model="f.operator"
-                      type="select"
+                      trigger="button"
                       :options="
                         getOperators(f.field.fieldtype, f.field.fieldname)
                       "
@@ -113,7 +115,7 @@
                 <Button
                   class="flex"
                   variant="ghost"
-                  icon="x"
+                  icon="lucide-x"
                   @click="removeFilter(i)"
                 />
               </div>
@@ -126,22 +128,22 @@
             {{ __('Empty - Choose a field to filter by') }}
           </div>
           <div class="flex items-center justify-between gap-2">
-            <Autocomplete
-              value=""
+            <Combobox
+              :model-value="null"
               :options="availableFilters"
               :placeholder="__('First Name')"
-              @change="(e) => setfilter(e)"
+              @update:selected-option="(e) => setfilter(e)"
             >
-              <template #target="{ togglePopover }">
+              <template #trigger="{ open, setOpen }">
                 <Button
                   class="!text-ink-gray-5"
                   variant="ghost"
                   :label="__('Add Filter')"
                   iconLeft="plus"
-                  @click="togglePopover()"
+                  @click="setOpen(!open)"
                 />
               </template>
-            </Autocomplete>
+            </Combobox>
             <Button
               v-if="filters?.size"
               class="!text-ink-gray-5"
@@ -158,8 +160,10 @@
 <script setup>
 import FilterIcon from '@/components/Icons/FilterIcon.vue'
 import Link from '@/components/Controls/Link.vue'
-import Autocomplete from '@/components/frappe-ui/Autocomplete.vue'
+import DurationInput from '@/components/Controls/DurationInput.vue'
+import RatingInput from '@/components/Controls/RatingInput.vue'
 import {
+  Combobox,
   FormControl,
   createResource,
   Popover,
@@ -169,6 +173,7 @@ import {
 } from 'frappe-ui'
 import { h, computed, onMounted } from 'vue'
 import { isMobileView } from '@/composables/settings'
+import { getFormat } from '@/utils'
 
 const typeCheck = ['Check']
 const typeLink = ['Link', 'Dynamic Link']
@@ -176,6 +181,8 @@ const typeNumber = ['Float', 'Int', 'Currency', 'Percent']
 const typeSelect = ['Select']
 const typeString = ['Data', 'Long Text', 'Small Text', 'Text Editor', 'Text']
 const typeDate = ['Date', 'Datetime']
+const typeDuration = ['Duration']
+const typeRating = ['Rating']
 
 const props = defineProps({
   doctype: { type: String, required: true },
@@ -201,12 +208,41 @@ const filters = computed(() => {
   if (!list.value?.data) return new Set()
   let allFilters =
     list.value?.params?.filters || list.value.data?.params?.filters
-  if (!allFilters || !filterableFields.data) return new Set()
+  if (
+    !allFilters ||
+    Object.keys(allFilters).length === 0 ||
+    !filterableFields.data
+  )
+    return new Set()
   // remove default filters
   if (props.default_filters) {
     allFilters = removeCommonFilters(props.default_filters, allFilters)
   }
   return convertFilters(filterableFields.data, allFilters)
+})
+
+// `name` is labelled "Name" but holds the document ID, which reads as the
+// record's full name on these doctypes. Mark it with an ID icon.
+const idFieldDoctypes = ['CRM Lead', 'CRM Deal']
+
+const filterFieldOptions = computed(() => {
+  const fields = filterableFields.data || []
+  if (!idFieldDoctypes.includes(props.doctype)) return fields
+
+  return fields.map((field) =>
+    field.fieldname === 'name'
+      ? {
+          ...field,
+          slots: {
+            suffix: () =>
+              h('span', {
+                class: 'lucide-id-card size-4 shrink-0 text-ink-gray-5',
+                title: __('Document ID, not the full name'),
+              }),
+          },
+        }
+      : field,
+  )
 })
 
 const availableFilters = computed(() => {
@@ -217,7 +253,7 @@ const availableFilters = computed(() => {
     selectedFieldNames.add(filter.fieldname)
   }
 
-  return filterableFields.data.filter(
+  return filterFieldOptions.value.filter(
     (field) => !selectedFieldNames.has(field.fieldname),
   )
 })
@@ -323,7 +359,7 @@ function getOperators(fieldtype, fieldname) {
   if (typeCheck.includes(fieldtype)) {
     options.push(...[{ label: __('Equals'), value: 'equals' }])
   }
-  if (['Duration'].includes(fieldtype)) {
+  if (typeDuration.includes(fieldtype)) {
     options.push(
       ...[
         { label: __('Like'), value: 'like' },
@@ -349,6 +385,19 @@ function getOperators(fieldtype, fieldname) {
       ],
     )
   }
+  if (typeRating.includes(fieldtype)) {
+    options.push(
+      ...[
+        { label: __('Equals'), value: 'equals' },
+        { label: __('Not equals'), value: 'not equals' },
+        { label: __('Greater than'), value: '>' },
+        { label: __('Less than'), value: '<' },
+        { label: __('Greater than or equal to'), value: '>=' },
+        { label: __('Less than or equal to'), value: '<=' },
+        { label: __('Is'), value: 'is' },
+      ],
+    )
+  }
   return options
 }
 
@@ -356,15 +405,15 @@ function getValueControl(f) {
   const { field, operator } = f
   const { fieldtype, options } = field
   if (operator == 'is') {
-    return h(FormControl, {
-      type: 'select',
+    return h(Combobox, {
+      trigger: 'button',
       options: [
         {
-          label: 'Set',
+          label: __('Set'),
           value: 'set',
         },
         {
-          label: 'Not Set',
+          label: __('Not Set'),
           value: 'not set',
         },
       ],
@@ -372,8 +421,8 @@ function getValueControl(f) {
       'onUpdate:modelValue': (v) => updateValue(v, f),
     })
   } else if (operator == 'timespan') {
-    return h(FormControl, {
-      type: 'select',
+    return h(Combobox, {
+      trigger: 'button',
       options: timespanOptions,
       modelValue: f.value,
       'onUpdate:modelValue': (v) => updateValue(v, f),
@@ -383,8 +432,8 @@ function getValueControl(f) {
   } else if (typeSelect.includes(fieldtype) || typeCheck.includes(fieldtype)) {
     const _options =
       fieldtype == 'Check' ? ['Yes', 'No'] : getSelectOptions(options)
-    return h(FormControl, {
-      type: 'select',
+    return h(Combobox, {
+      trigger: 'button',
       options: _options.map((o) => ({
         label: o,
         value: o,
@@ -400,11 +449,27 @@ function getValueControl(f) {
   } else if (typeNumber.includes(fieldtype)) {
     return h(FormControl, { type: 'number' })
   } else if (typeDate.includes(fieldtype) && operator == 'between') {
-    return h(DateRangePicker, { value: f.value, iconLeft: '' })
+    return h(DateRangePicker, {
+      value: f.value,
+      iconLeft: '',
+      format: getFormat('', '', true, false, false),
+    })
+  } else if (typeDuration.includes(fieldtype)) {
+    return h(DurationInput, { value: f.value })
+  } else if (typeRating.includes(fieldtype)) {
+    return h(RatingInput, {
+      value: f.value,
+      max: options || 5,
+      class: '!flex',
+    })
   } else if (typeDate.includes(fieldtype)) {
     return h(fieldtype == 'Date' ? DatePicker : DateTimePicker, {
       value: f.value,
       iconLeft: '',
+      format:
+        fieldtype == 'Date'
+          ? getFormat('', '', true, false, false)
+          : getFormat('', '', true, true, false),
     })
   } else {
     return h(FormControl, { type: 'text' })
@@ -458,7 +523,7 @@ function setfilter(data) {
 }
 
 function updateFilter(data, index) {
-  if (!data.fieldname) return
+  if (!data?.fieldname) return
 
   filters.value.delete(Array.from(filters.value)[index])
   filters.value.add({
@@ -489,7 +554,11 @@ function clearfilter(close) {
 function updateValue(value, filter) {
   value = value.target ? value.target.value : value
   if (filter.operator === 'between') {
-    filter.value = [value.split(',')[0], value.split(',')[1]]
+    // DateRangePicker emits a [from, to] array; tolerate a legacy "from,to" string too
+    if (typeof value === 'string') {
+      value = value.split(',').map((v) => v.trim())
+    }
+    filter.value = value
   } else {
     filter.value = value
   }
@@ -535,6 +604,9 @@ function parseFilters(filters) {
 function transformIn(f) {
   if (f.operator.includes('like') && !f.value.includes('%')) {
     f.value = `%${f.value}%`
+  }
+  if (['in', 'not in'].includes(f.operator) && typeof f.value === 'string') {
+    f.value = f.value.split(',').map((v) => v.trim())
   }
   return f
 }

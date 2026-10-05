@@ -28,7 +28,7 @@
                 </template>
                 <template #body>
                   <div
-                    class="flex flex-col gap-3 px-3 py-2.5 min-w-40 rounded-lg bg-surface-modal shadow-2xl ring-1 ring-black ring-opacity-5 focus:outline-none"
+                    class="flex flex-col gap-3 px-3 py-2.5 min-w-40 rounded-lg bg-surface-elevation-2 shadow-2xl ring-1 ring-black ring-opacity-5 focus:outline-none"
                   >
                     <div class="flex gap-1">
                       <Button
@@ -56,14 +56,14 @@
               <Dropdown :options="actions(column)">
                 <template #default>
                   <Button
-                    class="hidden group-hover:flex"
-                    icon="more-horizontal"
+                    class="opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity"
+                    icon="lucide-more-horizontal"
                     variant="ghost"
                   />
                 </template>
               </Dropdown>
               <Button
-                icon="plus"
+                icon="lucide-plus"
                 variant="ghost"
                 @click="options.onNewClick(column)"
               />
@@ -82,7 +82,7 @@
               <template #item="{ element: fields }">
                 <component
                   :is="options.getRoute ? 'router-link' : 'div'"
-                  class="pt-3 px-3.5 pb-2.5 rounded-lg border bg-surface-white text-base flex flex-col text-ink-gray-9"
+                  class="pt-3 px-3.5 pb-2.5 rounded-lg border bg-surface-base text-base flex flex-col text-ink-gray-9"
                   :data-name="fields.name"
                   v-bind="{
                     to: options.getRoute ? options.getRoute(fields) : undefined,
@@ -126,7 +126,11 @@
                   <slot name="actions" v-bind="{ itemName: fields.name }">
                     <div class="flex gap-2 items-center justify-between">
                       <div></div>
-                      <Button icon="plus" variant="ghost" @click.stop.prevent />
+                      <Button
+                        icon="lucide-plus"
+                        variant="ghost"
+                        @click.stop.prevent
+                      />
                     </div>
                   </slot>
                 </component>
@@ -145,30 +149,38 @@
         </div>
       </template>
     </Draggable>
-    <div v-if="deletedColumns.length" class="shrink-0 min-w-64">
-      <Autocomplete
-        value=""
+    <div class="shrink-0 min-w-64">
+      <Combobox
+        :model-value="null"
         :options="deletedColumns"
-        @change="(e) => addColumn(e)"
+        @update:selected-option="(e) => addColumn(e)"
       >
-        <template #target="{ togglePopover }">
+        <template #trigger="{ open, setOpen }">
           <Button
             class="w-full mt-2.5 mb-1 mr-5"
             :label="__('Add Column')"
             iconLeft="plus"
-            @click="togglePopover()"
+            @click="setOpen(!open)"
           />
         </template>
-      </Autocomplete>
+        <template #footer>
+          <Button
+            class="w-full"
+            :label="__('Reload Columns')"
+            :iconLeft="RefreshIcon"
+            @click="updateColumn(null, true)"
+          />
+        </template>
+      </Combobox>
     </div>
   </div>
 </template>
 <script setup>
-import Autocomplete from '@/components/frappe-ui/Autocomplete.vue'
+import RefreshIcon from '@/components/Icons/RefreshIcon.vue'
 import IndicatorIcon from '@/components/Icons/IndicatorIcon.vue'
 import { isTouchScreenDevice, colors, parseColor } from '@/utils'
 import Draggable from 'vuedraggable'
-import { Dropdown, Popover } from 'frappe-ui'
+import { Combobox, Dropdown, Popover } from 'frappe-ui'
 import { computed } from 'vue'
 
 defineProps({
@@ -205,10 +217,11 @@ const columns = computed(() => {
 })
 
 const deletedColumns = computed(() => {
-  return columns.value
-    .filter((col) => col.column['delete'])
+  const _columns = kanban.value?.data?.kanban_columns || []
+  return _columns
+    ?.filter((col) => col['delete'])
     .map((col) => {
-      return { label: col.column.name, value: col.column.name }
+      return { label: col.name, value: col.name }
     })
 })
 
@@ -234,10 +247,12 @@ function actions(column) {
 function addColumn(e) {
   let column = columns.value.find((col) => col.column.name == e.value)
   column.column['delete'] = false
+  columns.value.splice(columns.value.indexOf(column), 1)
+  columns.value.push(column)
   updateColumn()
 }
 
-function updateColumn(d) {
+function updateColumn(d, fetchNewColumns = false) {
   let toColumn = d?.to?.dataset.column
   let fromColumn = d?.from?.dataset.column
   let itemName = d?.item?.dataset.name
@@ -251,7 +266,7 @@ function updateColumn(d) {
     _columns.push(col.column)
   })
 
-  let data = { kanban_columns: _columns }
+  let data = { kanban_columns: _columns, fetchNewColumns }
 
   if (toColumn != fromColumn) {
     data = { item: itemName, to: toColumn, kanban_columns: _columns }

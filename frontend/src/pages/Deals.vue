@@ -179,17 +179,17 @@
           <span v-if="getRow(itemName, '_email_count').label">
             {{ getRow(itemName, '_email_count').label }}
           </span>
-          <span class="text-3xl leading-[0]"> &middot; </span>
+          <span class="text-4xl leading-[0]"> &middot; </span>
           <NoteIcon class="h-4 w-4" />
           <span v-if="getRow(itemName, '_note_count').label">
             {{ getRow(itemName, '_note_count').label }}
           </span>
-          <span class="text-3xl leading-[0]"> &middot; </span>
+          <span class="text-4xl leading-[0]"> &middot; </span>
           <TaskIcon class="h-4 w-4" />
           <span v-if="getRow(itemName, '_task_count').label">
             {{ getRow(itemName, '_task_count').label }}
           </span>
-          <span class="text-3xl leading-[0]"> &middot; </span>
+          <span class="text-4xl leading-[0]"> &middot; </span>
           <CommentIcon class="h-4 w-4" />
           <span v-if="getRow(itemName, '_comment_count').label">
             {{ getRow(itemName, '_comment_count').label }}
@@ -201,7 +201,7 @@
           variant="ghost"
           @click.stop.prevent
         >
-          <Button icon="plus" variant="ghost" />
+          <Button icon="lucide-plus" variant="ghost" />
         </Dropdown>
       </div>
     </template>
@@ -239,20 +239,6 @@
     v-model="showDealModal"
     :defaults="defaults"
   />
-  <NoteModal
-    v-if="showNoteModal"
-    v-model="showNoteModal"
-    :note="note"
-    doctype="CRM Deal"
-    :doc="docname"
-  />
-  <TaskModal
-    v-if="showTaskModal"
-    v-model="showTaskModal"
-    :task="task"
-    doctype="CRM Deal"
-    :doc="docname"
-  />
 </template>
 
 <script setup>
@@ -271,16 +257,18 @@ import DealsListView from '@/components/ListViews/DealsListView.vue'
 import EmptyState from '@/components/ListViews/EmptyState.vue'
 import KanbanView from '@/components/Kanban/KanbanView.vue'
 import DealModal from '@/components/Modals/DealModal.vue'
-import NoteModal from '@/components/Modals/NoteModal.vue'
-import TaskModal from '@/components/Modals/TaskModal.vue'
 import ViewControls from '@/components/ViewControls.vue'
+import { useDoctypeModal } from '@/composables/doctypeModal'
 import { getMeta } from '@/stores/meta'
 import { globalStore } from '@/stores/global'
 import { usersStore } from '@/stores/users'
 import { organizationsStore } from '@/stores/organizations'
 import { statusesStore } from '@/stores/statuses'
-import { callEnabled } from '@/composables/settings'
+import { callEnabled } from '@/composables/telephony'
 import { formatDate, timeAgo, website, formatTime } from '@/utils'
+import { timestampCell } from '@/composables/useTimelinePreferences'
+import { useOnboarding, useTelemetry } from 'frappe-ui/frappe'
+import { useBroadcast } from '@/composables/useBroadcast'
 import { Tooltip, Avatar, Dropdown } from 'frappe-ui'
 import { useRoute } from 'vue-router'
 import { ref, reactive, computed, h } from 'vue'
@@ -291,11 +279,19 @@ const { makeCall } = globalStore()
 const { getUser } = usersStore()
 const { getOrganization } = organizationsStore()
 const { getDealStatus } = statusesStore()
+const { updateOnboardingStep } = useOnboarding('frappecrm')
+const { capture } = useTelemetry()
+const { showModal } = useDoctypeModal()
+const { on } = useBroadcast()
 
 const route = useRoute()
 
 const dealsListView = ref(null)
 const showDealModal = ref(false)
+
+on('trigger_deal_create', (data) => {
+  showDealModal.value = Boolean(data)
+})
 
 const defaults = reactive({})
 
@@ -470,10 +466,7 @@ function parseRows(rows, columns = []) {
           label: getUser(user).full_name,
         }))
       } else if (['modified', 'creation'].includes(row)) {
-        _rows[row] = {
-          label: formatDate(deal[row]),
-          timeAgo: __(timeAgo(deal[row])),
-        }
+        _rows[row] = timestampCell(deal[row])
       } else if (
         ['first_response_time', 'first_responded_on', 'response_by'].includes(
           row,
@@ -533,30 +526,45 @@ function actions(itemName) {
   )
 }
 
-const docname = ref('')
-const showNoteModal = ref(false)
-const note = ref({
-  title: '',
-  content: '',
-})
-
 function showNote(name) {
-  docname.value = name
-  showNoteModal.value = true
+  showModal({
+    doctype: 'FCRM Note',
+    title: 'Note',
+    defaults: {
+      reference_doctype: 'CRM Deal',
+      reference_docname: name,
+    },
+    callbacks: {
+      afterInsert: (d) => after(d, true),
+      afterUpdate: after,
+    },
+  })
 }
 
-const showTaskModal = ref(false)
-const task = ref({
-  title: '',
-  description: '',
-  assigned_to: '',
-  due_date: '',
-  priority: 'Low',
-  status: 'Todo',
-})
-
 function showTask(name) {
-  docname.value = name
-  showTaskModal.value = true
+  showModal({
+    doctype: 'CRM Task',
+    title: 'Task',
+    defaults: {
+      status: 'Todo',
+      priority: 'Low',
+      reference_doctype: 'CRM Deal',
+      reference_docname: name,
+    },
+    callbacks: {
+      afterInsert: (d) => after(d, true),
+      afterUpdate: after,
+    },
+  })
+}
+
+function after(d, isNew = false) {
+  let a = d.doctype == 'CRM Task' ? 'task' : 'note'
+  if (isNew) {
+    updateOnboardingStep('create_first_' + a)
+    capture(a + '_created')
+  } else {
+    capture(a + '_updated')
+  }
 }
 </script>

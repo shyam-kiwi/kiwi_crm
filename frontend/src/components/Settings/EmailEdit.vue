@@ -2,7 +2,7 @@
   <div class="flex flex-col h-full gap-4">
     <!-- title and desc -->
     <div role="heading" aria-level="1" class="flex justify-between gap-1">
-      <h2 class="text-xl font-semibold text-ink-gray-8">
+      <h2 class="text-2xl-semibold text-ink-gray-8">
         {{ __('Edit Email') }}
       </h2>
     </div>
@@ -45,19 +45,20 @@
         </div>
       </div>
       <div class="grid grid-cols-2 gap-4">
-        <div
-          v-for="field in incomingOutgoingFields"
-          :key="field.name"
-          class="flex flex-col gap-1"
-        >
-          <FormControl
-            v-model="state[field.name]"
-            :label="field.label"
-            :name="field.name"
-            :type="field.type"
-          />
-          <p class="text-ink-gray-4 text-p-sm">{{ field.description }}</p>
-        </div>
+        <template v-for="field in incomingOutgoingFields" :key="field.name">
+          <div
+            v-if="field.condition ? field.condition(state) : true"
+            class="flex flex-col gap-1"
+          >
+            <FormControl
+              v-model="state[field.name]"
+              :label="field.label"
+              :name="field.name"
+              :type="field.type"
+            />
+            <p class="text-ink-gray-4 text-p-sm">{{ field.description }}</p>
+          </div>
+        </template>
       </div>
       <ErrorMessage v-if="error" class="ml-1" :message="error" />
     </div>
@@ -112,6 +113,8 @@ const state = reactive({
   enable_outgoing: props.accountData.enable_outgoing || false,
   default_outgoing: props.accountData.default_outgoing || false,
   default_incoming: props.accountData.default_incoming || false,
+  create_lead_from_incoming_email:
+    props.accountData.create_lead_from_incoming_email || false,
 })
 
 const info = {
@@ -205,11 +208,11 @@ async function callSetValue(values) {
 
 function succesHandler() {
   emit('update:step', 'email-list')
-  toast.success(__('Email Account updated successfully'))
+  toast.success(__('Email account updated successfully'))
 }
 
 function errorHandler() {
   loading.value = false
-  error.value = __('Failed to update Email Account, Invalid credentials')
+  error.value = __('Failed to update email account: invalid credentials')
 }
 </script>

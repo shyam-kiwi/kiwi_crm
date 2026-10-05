@@ -211,7 +211,8 @@ import { globalStore } from '@/stores/global'
 import { ticketStatusesStore } from '@/stores/ticketStatuses'
 import { getMeta } from '@/stores/meta'
 import { useDocument } from '@/data/document'
-import { whatsappEnabled, callEnabled } from '@/composables/settings'
+import { whatsappEnabled } from '@/composables/whatsapp'
+import { callEnabled } from '@/composables/telephony'
 import {
   createResource,
   Dropdown,

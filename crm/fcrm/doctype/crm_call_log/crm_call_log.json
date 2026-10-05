@@ -41,12 +41,15 @@
    "fieldname": "from",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "From",
+   "in_standard_filter": 1,
+   "label": "From Number",
+   "options": "Phone",
    "reqd": 1
   },
   {
    "fieldname": "status",
    "fieldtype": "Select",
+   "in_standard_filter": 1,
    "label": "Status",
    "options": "Initiated\nRinging\nIn Progress\nCompleted\nFailed\nBusy\nNo Answer\nQueued\nCanceled",
    "reqd": 1
@@ -78,11 +81,12 @@
    "fieldname": "to",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "To",
+   "in_standard_filter": 1,
+   "label": "To Number",
+   "options": "Phone",
    "reqd": 1
   },
   {
-   "description": "Call duration in seconds",
    "fieldname": "duration",
    "fieldtype": "Duration",
    "in_list_view": 1,
@@ -157,7 +161,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-03-06 16:49:40.394621",
+ "modified": "2026-07-30 12:31:44.974374",
  "modified_by": "Administrator",
  "module": "FCRM",
  "name": "CRM Call Log",

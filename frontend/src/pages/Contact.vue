@@ -107,7 +107,7 @@
               variant="solid"
               :label="__('New Note')"
               iconLeft="plus"
-              @click="showNoteModal = true; editingNote = {}"
+              @click="showNote()"
             />
           </div>
           <div
@@ -117,19 +117,12 @@
             <div
               v-for="note in notes.data"
               :key="note.name"
-              @click="editingNote = note; showNoteModal = true"
+              @click="showNote(note.name)"
             >
               <NoteArea v-model="notes" :note="note" />
             </div>
           </div>
           <EmptyState v-else :icon="NoteIcon" name="Notes" />
-          <NoteModal
-            v-model="showNoteModal"
-            v-model:reloadNotes="notes"
-            :note="editingNote"
-            doctype="Contact"
-            :doc="contact.doc.name"
-          />
         </div>
         <div v-if="tab.label === 'Call Logs'" class="flex flex-1 flex-col overflow-hidden">
           <div v-if="callLogs.data?.length" class="activity mt-4">
@@ -307,7 +300,6 @@ import TicketsIcon from '@/components/Icons/TicketsIcon.vue'
 import NoteIcon from '@/components/Icons/NoteIcon.vue'
 import DetailsIcon from '@/components/Icons/DetailsIcon.vue'
 import NoteArea from '@/components/Activities/NoteArea.vue'
-import NoteModal from '@/components/Modals/NoteModal.vue'
 import TicketModal from '@/components/Modals/TicketModal.vue'
 import CallArea from '@/components/Activities/CallArea.vue'
 import MissedCallIcon from '@/components/Icons/MissedCallIcon.vue'
@@ -320,12 +312,12 @@ import ListRows from '@/components/ListViews/ListRows.vue'
 import CustomActions from '@/components/CustomActions.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import {
-  formatDate,
-  timeAgo,
   validateIsImageFile,
   setupCustomizations,
   copyToClipboard,
 } from '@/utils'
+import { useContactFields } from '@/composables/useContactFields'
+import { timestampCell } from '@/composables/useTimelinePreferences'
 import { getView } from '@/utils/view'
 import { useDocument } from '@/data/document'
 import { getSettings } from '@/stores/settings'
@@ -334,8 +326,7 @@ import { globalStore } from '@/stores/global.js'
 import { usersStore } from '@/stores/users.js'
 import { organizationsStore } from '@/stores/organizations.js'
 import { statusesStore } from '@/stores/statuses'
-import { showAddressModal, addressProps } from '@/composables/modals'
-import { callEnabled } from '@/composables/settings'
+import { callEnabled } from '@/composables/telephony'
 import {
   Breadcrumbs,
   Avatar,
@@ -350,7 +341,9 @@ import {
   ListView,
   ListRowItem,
 } from 'frappe-ui'
-import { ref, computed, watch } from 'vue'
+import { useDoctypeModal } from '@/composables/doctypeModal'
+import { useTelemetry } from 'frappe-ui/frappe'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import EmptyState from '@/components/ListViews/EmptyState.vue'
 
@@ -361,6 +354,7 @@ const { getUser } = usersStore()
 const { getOrganization } = organizationsStore()
 const { getDealStatus, getLeadStatus } = statusesStore()
 const { doctypeMeta } = getMeta('Contact')
+const { capture } = useTelemetry()
 
 const props = defineProps({
   contactId: { type: String, required: true },
@@ -376,9 +370,16 @@ const {
   document: contact,
   permissions,
   scripts,
+  triggerOnRender,
 } = useDocument('Contact', props.contactId)
 
 const canDelete = computed(() => permissions.data?.permissions?.delete || false)
+
+const transformField = useContactFields(contact)
+
+onMounted(async () => {
+  if (contact.doc) await triggerOnRender()
+})
 
 const breadcrumbs = computed(() => {
   let items = [{ label: __('Contacts'), route: { name: 'Contacts' } }]
@@ -400,7 +401,11 @@ const breadcrumbs = computed(() => {
 
   items.push({
     label: title.value,
-    route: { name: 'Contact', params: { contactId: props.contactId } },
+    route: {
+      name: 'Contact',
+      params: { contactId: props.contactId },
+      query: route.query,
+    },
   })
   return items
 })
@@ -418,8 +423,6 @@ usePageMeta(() => {
 })
 const showDeleteLinkedDocModal = ref(false)
 const showFilesUploader = ref(false)
-const showNoteModal = ref(false)
-const editingNote = ref({})
 const showTicketModal = ref(false)
 const ticketDefaults = ref({})
 
@@ -533,97 +536,14 @@ const parsedSections = computed(() => {
         field.placeholder =
           fieldPlaceholderMap[field.fieldname] || field.placeholder
 
-        if (field.fieldname === 'email_id' && !section.read_only) {
-          return {
-            ...field,
-            read_only: false,
-            fieldtype: 'Dropdown',
-            options: (contact.doc?.email_ids || []).map((email) => ({
-              name: email.name,
-              value: email.email_id,
-              selected: email.email_id === contact.doc.email_id,
-              placeholder: 'john@doe.com',
-              onClick: () => setAsPrimary('email', email.email_id),
-              onSave: (option, isNew) =>
-                isNew
-                  ? createNew('email', option.value)
-                  : editOption(
-                      'Contact Email',
-                      option.name,
-                      'email_id',
-                      option.value,
-                    ),
-              onDelete: async (option, isNew) => {
-                contact.doc.email_ids = contact.doc.email_ids.filter(
-                  (e) => e.name !== option.name,
-                )
-                if (!isNew) await deleteOption('Contact Email', option.name)
-              },
-            })),
-            create: () => {
-              // Add a temporary new option locally (mirrors original behavior)
-              contact.doc.email_ids = [
-                ...(contact.doc.email_ids || []),
-                {
-                  name: 'new-1',
-                  value: '',
-                  selected: false,
-                  isNew: true,
-                },
-              ]
-            },
-          }
+        // Kiwi: keep email/mobile as plain fields in read-only sections
+        if (
+          section.read_only &&
+          ['email_id', 'mobile_no'].includes(field.fieldname)
+        ) {
+          return field
         }
-        if (field.fieldname === 'mobile_no' && !section.read_only) {
-          return {
-            ...field,
-            read_only: false,
-            fieldtype: 'Dropdown',
-            options: (contact.doc?.phone_nos || []).map((phone) => ({
-              name: phone.name,
-              value: phone.phone,
-              selected: phone.phone === contact.doc.mobile_no,
-              onClick: () => setAsPrimary('mobile_no', phone.phone),
-              onSave: (option, isNew) =>
-                isNew
-                  ? createNew('phone', option.value)
-                  : editOption(
-                      'Contact Phone',
-                      option.name,
-                      'phone',
-                      option.value,
-                    ),
-              onDelete: async (option, isNew) => {
-                contact.doc.phone_nos = contact.doc.phone_nos.filter(
-                  (p) => p.name !== option.name,
-                )
-                if (!isNew) await deleteOption('Contact Phone', option.name)
-              },
-            })),
-            create: () => {
-              contact.doc.phone_nos = [
-                ...(contact.doc.phone_nos || []),
-                {
-                  name: 'new-1',
-                  value: '',
-                  selected: false,
-                  isNew: true,
-                },
-              ]
-            },
-          }
-        }
-        if (field.fieldname === 'address') {
-          return {
-            ...field,
-            create: (_value, close) => {
-              openAddressModal()
-              close?.()
-            },
-            edit: (address) => openAddressModal(address),
-          }
-        }
-        return field
+        return transformField(field, { showAddressModal })
       }),
     })),
   }))
@@ -639,53 +559,6 @@ const fieldPlaceholderMap = {
   company_name: __('Add Organization...'),
 }
 
-async function setAsPrimary(field, value) {
-  let d = await call('crm.api.contact.set_as_primary', {
-    contact: contact.doc.name,
-    field,
-    value,
-  })
-  if (d) {
-    contact.reload()
-    toast.success(__('Contact Updated'))
-  }
-}
-
-async function createNew(field, value) {
-  if (!value) return
-  let d = await call('crm.api.contact.create_new', {
-    contact: contact.doc.name,
-    field,
-    value,
-  })
-  if (d) {
-    contact.reload()
-    toast.success(__('Contact Updated'))
-  }
-}
-
-async function editOption(doctype, name, fieldname, value) {
-  let d = await call('frappe.client.set_value', {
-    doctype,
-    name,
-    fieldname,
-    value,
-  })
-  if (d) {
-    contact.reload()
-    toast.success(__('Contact Updated'))
-  }
-}
-
-async function deleteOption(doctype, name) {
-  await call('frappe.client.delete', {
-    doctype,
-    name,
-  })
-  await contact.reload()
-  toast.success(__('Contact Updated'))
-}
-
 const { getFormattedCurrency } = getMeta('CRM Deal')
 
 const columns = computed(() => dealColumns)
@@ -697,7 +570,7 @@ function getDealRowObject(deal) {
       label: deal.organization,
       logo: getOrganization(deal.organization)?.organization_logo,
     },
-    annual_revenue: getFormattedCurrency('annual_revenue', deal),
+    deal_value: getFormattedCurrency('deal_value', deal),
     status: {
       label: deal.status,
       color: getDealStatus(deal.status)?.color,
@@ -708,10 +581,7 @@ function getDealRowObject(deal) {
       label: deal.deal_owner && getUser(deal.deal_owner).full_name,
       ...(deal.deal_owner && getUser(deal.deal_owner)),
     },
-    modified: {
-      label: formatDate(deal.modified),
-      timeAgo: __(timeAgo(deal.modified)),
-    },
+    modified: timestampCell(deal.modified),
   }
 }
 
@@ -723,7 +593,7 @@ const dealColumns = [
   },
   {
     label: __('Amount'),
-    key: 'annual_revenue',
+    key: 'deal_value',
     align: 'right',
     width: '9rem',
   },
@@ -771,10 +641,7 @@ const leadRows = computed(() => {
       user: lead.lead_owner,
       ...(lead.lead_owner && getUser(lead.lead_owner)),
     },
-    modified: {
-      label: formatDate(lead.modified),
-      timeAgo: __(timeAgo(lead.modified)),
-    },
+    modified: timestampCell(lead.modified),
   }))
 })
 
@@ -797,10 +664,7 @@ const ticketRows = computed(() => {
     priority: { label: ticket.priority },
     contact: ticket.contact,
     agent: ticket.agent,
-    modified: {
-      label: formatDate(ticket.modified),
-      timeAgo: __(timeAgo(ticket.modified)),
-    },
+    modified: timestampCell(ticket.modified),
   }))
 })
 
@@ -817,12 +681,36 @@ function getPriorityColor(priority) {
   return map[priority] || 'gray'
 }
 
-function openAddressModal(_address) {
-  showAddressModal.value = true
-  addressProps.value = {
+const { showModal } = useDoctypeModal()
+
+function showAddressModal(_address) {
+  showModal({
+    name: _address || null,
     doctype: 'Address',
-    address: _address,
-  }
+    callbacks: {
+      afterInsert: (d) => {
+        capture('address_created')
+        contact.doc.address = d.name
+        contact.save.submit()
+      },
+    },
+  })
+}
+
+function showNote(name) {
+  showModal({
+    name: name || null,
+    doctype: 'FCRM Note',
+    title: 'Note',
+    defaults: {
+      reference_doctype: 'Contact',
+      reference_docname: contact.doc.name,
+    },
+    callbacks: {
+      afterInsert: () => notes.reload(),
+      afterUpdate: () => notes.reload(),
+    },
+  })
 }
 
 // Setup custom actions from Form Scripts

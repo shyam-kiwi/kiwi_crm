@@ -13,6 +13,7 @@
     type="select"
     :options="filter.options"
     :placeholder="filter.label"
+    side="bottom"
     @update:modelValue="updateFilter(filter, $event)"
   />
   <Link
@@ -28,6 +29,11 @@
     class="border-none"
     :value="filter.value"
     :placeholder="filter.label"
+    :format="
+      filter.fieldtype === 'Date'
+        ? getFormat('', '', true, false, false)
+        : getFormat('', '', true, true, false)
+    "
     @change="(v) => updateFilter(filter, v)"
   />
   <FormControl
@@ -41,8 +47,9 @@
 <script setup>
 import Link from '@/components/Controls/Link.vue'
 import { FormControl, DatePicker, DateTimePicker } from 'frappe-ui'
+import { getFormat } from '@/utils'
 import { useDebounceFn } from '@vueuse/core'
-import { reactive } from 'vue'
+import { reactive, watch } from 'vue'
 
 const props = defineProps({
   filter: { type: Object, required: true },
@@ -51,6 +58,12 @@ const props = defineProps({
 const filter = reactive(props.filter)
 
 const emit = defineEmits(['applyQuickFilter'])
+
+watch(
+  () => props.filter,
+  (newFilter) => Object.assign(filter, newFilter),
+  { deep: true },
+)
 
 const debouncedFn = useDebounceFn((f, value) => {
   emit('applyQuickFilter', f, value)

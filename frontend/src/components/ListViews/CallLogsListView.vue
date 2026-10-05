@@ -20,26 +20,28 @@
         v-for="column in columns"
         :key="column.key"
         :item="column"
-        @columnWidthUpdated="emit('columnWidthUpdated', column)"
+        @columnWidthUpdated="(e) => onColumnWidthUpdated(e, column)"
       >
         <Button
           v-if="column.key == '_liked_by'"
-          variant="ghosted"
+          variant="ghost"
           class="!h-4"
-          :class="isLikeFilterApplied ? 'fill-red-500' : 'fill-white'"
           @click="() => emit('applyLikeFilter')"
         >
-          <HeartIcon class="h-4 w-4" />
+          <HeartIcon
+            class="h-4 w-4"
+            :class="isLikeFilterApplied ? 'fill-red-500 text-red-500' : ''"
+          />
         </Button>
       </ListHeaderItem>
     </ListHeader>
     <ListRows
-      v-slot="{ idx, column, item }"
+      v-slot="{ idx, column, item, row }"
       class="mx-3 sm:mx-5"
       :rows="rows"
       doctype="CRM Call Log"
     >
-      <ListRowItem :item="item" :align="column.align">
+      <ListRowItem :item="item" :align="column.align" class="overflow-hidden">
         <template #prefix>
           <div v-if="['caller', 'receiver'].includes(column.key)">
             <Avatar
@@ -101,15 +103,36 @@
           </div>
           <div v-else-if="column.key === '_liked_by'">
             <Button
-              v-if="column.key == '_liked_by'"
-              variant="ghosted"
-              :class="isLiked(item) ? 'fill-red-500' : 'fill-white'"
+              variant="ghost"
               @click.stop.prevent="
                 () => emit('likeDoc', { name: row.name, liked: isLiked(item) })
               "
             >
-              <HeartIcon class="h-4 w-4" />
+              <HeartIcon
+                class="h-4 w-4"
+                :class="isLiked(item) ? 'fill-red-500 text-red-500' : ''"
+              />
             </Button>
+          </div>
+          <RatingInput
+            v-else-if="column.type === 'Rating'"
+            :value="item"
+            class="!opacity-100 flex-nowrap overflow-auto"
+            :disabled="true"
+            :max="column.options || 5"
+            @click="
+              (event) =>
+                emit('applyFilter', {
+                  event,
+                  idx,
+                  column,
+                  item,
+                  firstColumn: columns[0],
+                })
+            "
+          />
+          <div v-else-if="column.key === 'duration'" class="truncate text-base">
+            {{ label }}
           </div>
           <div
             v-else-if="label"
@@ -135,7 +158,7 @@
         <Dropdown
           :options="listBulkActionsRef.bulkActions(selections, unselectAll)"
         >
-          <Button icon="more-horizontal" variant="ghost" />
+          <Button icon="lucide-more-horizontal" variant="ghost" />
         </Dropdown>
       </template>
     </ListSelectBanner>
@@ -163,6 +186,7 @@
 import HeartIcon from '@/components/Icons/HeartIcon.vue'
 import ListBulkActions from '@/components/ListBulkActions.vue'
 import ListRows from '@/components/ListViews/ListRows.vue'
+import RatingInput from '@/components/Controls/RatingInput.vue'
 import { isTranslatable } from '@/utils'
 import {
   Avatar,
@@ -206,6 +230,11 @@ const emit = defineEmits([
 
 const pageLengthCount = defineModel({ type: Number })
 const list = defineModel('list', { type: Object })
+
+function onColumnWidthUpdated({ width, save }, column) {
+  column.width = width
+  if (save) emit('columnWidthUpdated', column)
+}
 
 function getLabel(label, column) {
   if (column.options && isTranslatable(column.options)) return __(label)

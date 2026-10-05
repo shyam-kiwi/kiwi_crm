@@ -5,12 +5,12 @@
       <div class="flex gap-1 -ml-4 w-9/12">
         <Button
           variant="ghost"
-          icon-left="chevron-left"
+          icon-left="lucide-chevron-left"
           :label="
             templateData?.name ? __('Duplicate Template') : __('New Template')
           "
           size="md"
-          class="cursor-pointer hover:bg-transparent focus:bg-transparent focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:none active:bg-transparent active:outline-none active:ring-0 active:ring-offset-0 active:text-ink-gray-5 font-semibold text-xl hover:opacity-70 !pr-0 !max-w-96 !justify-start"
+          class="cursor-pointer hover:bg-transparent focus:bg-transparent focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:none active:bg-transparent active:outline-none active:ring-0 active:ring-offset-0 active:text-ink-gray-5 text-2xl-semibold hover:opacity-70 !pr-0 !max-w-96 !justify-start"
           @click="() => emit('updateStep', 'template-list')"
         />
       </div>
@@ -20,8 +20,8 @@
           <span class="text-sm text-ink-gray-7">{{ __('Enabled') }}</span>
         </div>
         <Button
-          :label="templateData?.name ? __('Duplicate') : __('Create')"
-          icon-left="plus"
+          :label="templateData?.name ? __('Duplicate') : __('Save')"
+          :icon-left="templateData?.name ? 'lucide-copy' : undefined"
           variant="solid"
           @click="createTemplate"
         />
@@ -44,6 +44,7 @@
           <FormControl
             v-model="template.reference_doctype"
             type="select"
+            side="bottom"
             size="md"
             :label="__('For')"
             :options="[
@@ -74,6 +75,7 @@
         <FormControl
           v-model="template.content_type"
           type="select"
+          side="bottom"
           size="md"
           :label="__('Content Type')"
           default="Rich Text"
@@ -100,12 +102,10 @@
         <div v-else>
           <div class="mb-1.5 text-base text-ink-gray-5">
             {{ __('Content') }}
-            <span class="text-ink-red-3">*</span>
+            <span class="text-ink-red-6">*</span>
           </div>
-          <TextEditor
-            ref="content"
-            editor-class="!prose-sm max-w-full overflow-auto min-h-[180px] max-h-80 py-1.5 px-2 rounded border border-[--surface-gray-2] bg-surface-gray-2 placeholder-ink-gray-4 hover:border-outline-gray-modals hover:bg-surface-gray-3 hover:shadow-sm focus:bg-surface-white focus:border-outline-gray-4 focus:shadow-sm focus:ring-0 focus-visible:ring-2 focus-visible:ring-outline-gray-3 text-ink-gray-8 transition-colors"
-            :bubbleMenu="true"
+          <RichTextField
+            editor-class="!prose-sm max-w-full overflow-auto min-h-[180px] max-h-80 py-1.5 px-2 rounded border border-[--surface-gray-2] bg-surface-gray-2 placeholder-ink-gray-4 hover:border-outline-elevation-2 hover:bg-surface-gray-3 hover:shadow-sm focus:bg-surface-base focus:border-outline-gray-4 focus:ring-0 focus-visible:ring-2 focus-visible:ring-outline-gray-3 text-ink-gray-8 transition-colors"
             :content="template.response"
             :placeholder="
               __(
@@ -123,12 +123,16 @@
   </div>
 </template>
 <script setup>
-import { TextEditor, FormControl, Switch, toast } from 'frappe-ui'
+import { useBroadcast } from '@/composables/useBroadcast'
+import RichTextField from '@/components/RichTextField.vue'
+import { FormControl, Switch, toast } from 'frappe-ui'
 import { inject, onMounted, ref } from 'vue'
 
 const props = defineProps({
   templateData: { type: Object, default: () => ({}) },
 })
+
+const { send } = useBroadcast()
 
 const emit = defineEmits(['updateStep'])
 const errorMessage = ref('')
@@ -170,6 +174,7 @@ const createTemplate = () => {
       onSuccess: () => {
         emit('updateStep', 'template-list')
         toast.success(__('Template created successfully'))
+        send('refresh-email-templates')
       },
       onError: (error) => {
         errorMessage.value =
@@ -184,6 +189,8 @@ onMounted(() => {
     Object.assign(template.value, props.templateData)
     template.value.name = template.value.name + ' - Copy'
     template.value.enabled = false // Default to disabled for new templates
+  } else {
+    Object.assign(template.value, props.templateData)
   }
 })
 </script>

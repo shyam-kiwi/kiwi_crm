@@ -177,11 +177,12 @@ def sync_default_rows(doctype, type="list"):
 
 
 def sync_default_columns(view):
-	list = get_controller(view.doctype)
+	doctype = view.dt or view.doctype
+	list = get_controller(doctype)
 	columns = []
 
 	if view.type == "kanban" and view.column_field:
-		field_meta = frappe.get_meta(view.doctype).get_field(view.column_field)
+		field_meta = frappe.get_meta(doctype).get_field(view.column_field)
 		if field_meta.fieldtype == "Link":
 			columns = frappe.get_all(
 				field_meta.options,
@@ -200,14 +201,15 @@ def sync_default_columns(view):
 def set_as_default(name: str | int | None = None, type: str | None = None, doctype: str | None = None):
 	if name:
 		frappe.db.set_value("CRM View Settings", name, "is_default", 1)
+		doctype = doctype or frappe.db.get_value("CRM View Settings", name, "dt")
 	else:
 		doc = create_or_update_standard_view({"type": type, "doctype": doctype, "is_default": 1})
 		name = doc.name
 
-	# remove default from other views of same user
+	# remove default from other views of same user and same doctype
 	frappe.db.set_value(
 		"CRM View Settings",
-		{"name": ("!=", name), "user": frappe.session.user, "is_default": 1},
+		{"name": ("!=", name), "user": frappe.session.user, "is_default": 1, "dt": doctype},
 		"is_default",
 		0,
 	)
@@ -284,6 +286,36 @@ def create_or_update_standard_view(view: dict):
 		doc.insert()
 
 	return doc
+
+
+@frappe.whitelist()
+def fetch_and_update_kanban_columns(name: str | int):
+	doc = frappe.get_doc("CRM View Settings", name)
+	if doc.type != "kanban":
+		return
+
+	new_columns = sync_default_columns(doc)
+	existing_columns = parse_json(doc.kanban_columns or "[]")
+	existing_column_names = [column.get("name") for column in existing_columns]
+	for column in new_columns:
+		if column.get("name") not in existing_column_names:
+			existing_columns.append({"name": column.get("name"), "delete": True})
+
+	doc.kanban_columns = json.dumps(existing_columns)
+	doc.save(ignore_permissions=True)
+	return doc.kanban_columns
+
+
+def clear_old_versions(days=14):
+	from frappe.utils import add_days, now_datetime
+
+	frappe.db.delete(
+		"Version",
+		{
+			"ref_doctype": "CRM View Settings",
+			"creation": ("<", add_days(now_datetime(), -days)),
+		},
+	)
 
 
 def get_route_name(doctype):

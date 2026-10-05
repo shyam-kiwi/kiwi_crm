@@ -113,7 +113,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { createResource } from 'frappe-ui'
-import { isOzonetelAgent } from '@/composables/settings'
+import { isOzonetelAgent } from '@/composables/telephony'
 
 const isPanelOpen = ref(false)
 const iframeRef = ref(null)

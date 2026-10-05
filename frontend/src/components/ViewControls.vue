@@ -4,13 +4,29 @@
     class="flex flex-col justify-between gap-2 sm:px-5 px-3 py-4"
   >
     <div class="flex flex-col gap-2">
-      <div class="flex items-center justify-between gap-2 overflow-x-auto">
-        <div class="flex gap-2">
-          <Filter
-            v-model="list"
-            :doctype="doctype"
-            :default_filters="filters"
-            @update="updateFilter"
+      <div class="flex items-center justify-between gap-2">
+        <FadedScrollableDiv
+          class="flex flex-1 items-center overflow-x-auto -ml-1 h-9"
+          orientation="horizontal"
+        >
+          <div
+            v-for="filter in quickFilterList"
+            :key="filter.fieldname"
+            class="m-1 min-w-36"
+          >
+            <QuickFilterField
+              :filter="filter"
+              @applyQuickFilter="(f, v) => applyQuickFilter(f, v)"
+            />
+          </div>
+        </FadedScrollableDiv>
+        <div class="-ml-2 h-[70%] border-l" />
+        <div class="flex shrink-0 gap-2">
+          <Button
+            :tooltip="__('Refresh')"
+            icon="lucide-refresh-ccw"
+            :loading="isLoading"
+            @click="reload()"
           />
           <GroupBy
             v-if="route.params.viewType === 'group_by'"
@@ -19,14 +35,11 @@
             :hideLabel="isMobileView"
             @update="updateGroupBy"
           />
-        </div>
-
-        <div class="flex gap-2">
-          <Button
-            :tooltip="__('Refresh')"
-            :icon="RefreshIcon"
-            :loading="isLoading"
-            @click="reload()"
+          <Filter
+            v-model="list"
+            :doctype="doctype"
+            :default_filters="filters"
+            @update="updateFilter"
           />
           <SortBy
             v-if="route.params.viewType !== 'kanban'"
@@ -83,9 +96,9 @@
                   </Tooltip>
                 </template>
                 <template #suffix>
-                  <FeatherIcon
-                    class="h-3.5 cursor-pointer group-hover:flex hidden"
-                    name="x"
+                  <span
+                    class="lucide-x h-3.5 cursor-pointer group-hover:flex hidden"
+                    aria-hidden="true"
                     @click.stop="removeQuickFilter(filter)"
                   />
                 </template>
@@ -95,28 +108,28 @@
         </Draggable>
       </FadedScrollableDiv>
       <div>
-        <Autocomplete
-          value=""
+        <Combobox
+          :model-value="null"
           :options="quickFilterOptions"
-          @change="(e) => addQuickFilter(e)"
+          @update:selected-option="(e) => addQuickFilter(e)"
         >
-          <template #target="{ togglePopover }">
+          <template #trigger="{ open, setOpen }">
             <Button
               class="whitespace-nowrap mr-2"
               variant="ghost"
               :label="__('Add Filter')"
               iconLeft="plus"
-              @click="togglePopover()"
+              @click="setOpen(!open)"
             />
           </template>
-          <template #item-label="{ option }">
-            <Tooltip :text="option.value" :hover-delay="1">
+          <template #item-label="{ item }">
+            <Tooltip :text="item.value" :hover-delay="1">
               <div class="flex-1 truncate text-ink-gray-7">
-                {{ option.label }}
+                {{ item.label }}
               </div>
             </Tooltip>
           </template>
-        </Autocomplete>
+        </Combobox>
       </div>
     </div>
     <div class="-ml-2 h-[70%] border-l" />
@@ -126,7 +139,7 @@
         :loading="updateQuickFilters.loading"
         @click="saveQuickFilters"
       />
-      <Button icon="x" @click="customizeQuickFilter = false" />
+      <Button icon="lucide-x" @click="customizeQuickFilter = false" />
     </div>
   </div>
   <div v-else class="flex items-center justify-between gap-2 px-5 py-4">
@@ -157,7 +170,7 @@
       <div class="flex items-center gap-2">
         <Button
           :tooltip="__('Refresh')"
-          :icon="RefreshIcon"
+          icon="lucide-refresh-ccw"
           :loading="isLoading"
           @click="reload()"
         />
@@ -230,7 +243,10 @@
           ]"
         >
           <template #default>
-            <Button :tooltip="__('More Options')" icon="more-horizontal" />
+            <Button
+              :tooltip="__('More Options')"
+              icon="lucide-more-horizontal"
+            />
           </template>
         </Dropdown>
       </div>
@@ -258,19 +274,17 @@
     }"
   />
   <Dialog
-    v-model="showExportDialog"
-    :options="{
-      title: __('Export'),
-      actions: [
-        {
-          label: __('Download'),
-          variant: 'solid',
-          onClick: () => exportRows(),
-        },
-      ],
-    }"
+    v-model:open="showExportDialog"
+    :title="__('Export')"
+    :actions="[
+      {
+        label: __('Download'),
+        variant: 'solid',
+        onClick: () => exportRows(),
+      },
+    ]"
   >
-    <template #body-content>
+    <template #default>
       <FormControl
         v-model="export_type"
         variant="outline"
@@ -299,11 +313,11 @@
   </Dialog>
 </template>
 <script setup>
+import Icon from '@/components/Icon.vue'
 import ListIcon from '@/components/Icons/ListIcon.vue'
 import KanbanIcon from '@/components/Icons/KanbanIcon.vue'
 import GroupByIcon from '@/components/Icons/GroupByIcon.vue'
 import QuickFilterField from '@/components/QuickFilterField.vue'
-import RefreshIcon from '@/components/Icons/RefreshIcon.vue'
 import EditIcon from '@/components/Icons/EditIcon.vue'
 import DuplicateIcon from '@/components/Icons/DuplicateIcon.vue'
 import CheckIcon from '@/components/Icons/CheckIcon.vue'
@@ -312,7 +326,6 @@ import UnpinIcon from '@/components/Icons/UnpinIcon.vue'
 import ExportIcon from '@/components/Icons/ExportIcon.vue'
 import QuickFilterIcon from '@/components/Icons/QuickFilterIcon.vue'
 import ViewModal from '@/components/Modals/ViewModal.vue'
-import Autocomplete from '@/components/frappe-ui/Autocomplete.vue'
 import SortBy from '@/components/SortBy.vue'
 import Filter from '@/components/Filter.vue'
 import GroupBy from '@/components/GroupBy.vue'
@@ -326,6 +339,7 @@ import { usersStore } from '@/stores/users'
 import { getMeta } from '@/stores/meta'
 import { isEmoji } from '@/utils'
 import {
+  Combobox,
   Tooltip,
   createResource,
   Dropdown,
@@ -334,10 +348,17 @@ import {
   FeatherIcon,
   usePageMeta,
 } from 'frappe-ui'
-import { computed, ref, onMounted, watch, h, markRaw } from 'vue'
+import { computed, ref, watch, h, markRaw } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { useDebounceFn } from '@vueuse/core'
 import { isMobileView } from '@/composables/settings'
+import {
+  commandPaletteOpen,
+  useCommandPaletteContext,
+} from '@/composables/useCommandPalette'
+import {
+  FILTERABLE_FIELDTYPES,
+  commandFilterOptions,
+} from '@/utils/commandPalette'
 import Draggable from 'vuedraggable'
 import _ from 'lodash'
 import ImportIcon from '~icons/lucide/import'
@@ -358,7 +379,8 @@ const props = defineProps({
 const { brand } = getSettings()
 const { $dialog } = globalStore()
 const { reload: reloadView, getDefaultView, getView } = viewsStore()
-const { isManager } = usersStore()
+
+const { isManager, getUser } = usersStore()
 
 const list = defineModel({ type: Object, default: () => ({}) })
 const loadMore = defineModel('loadMore', { type: Boolean })
@@ -511,7 +533,9 @@ function getParams() {
   }
 }
 
-list.value = createResource({
+let listResource
+
+listResource = createResource({
   url: 'crm.api.doc.get_data',
   params: getParams(),
   cache: [
@@ -528,9 +552,11 @@ list.value = createResource({
       list.value.data = null
     }
   },
+  auto: true,
   onSuccess(data) {
     let cv = getView(route.query.view, route.params.viewType, props.doctype)
-    let params = list.value.params ? list.value.params : getParams()
+    let params = listResource.params || getParams()
+    listResource.params = params
     defaultParams.value = {
       doctype: props.doctype,
       filters: params.filters,
@@ -553,14 +579,38 @@ list.value = createResource({
   },
 })
 
-onMounted(() => useDebounceFn(reload, 100)())
+list.value = listResource
+// Keep an unsaved view change on cached re-entry; don't reset to the saved view (frappe/crm#2833).
+// kanban_columns is excluded: pagination (load more) mutates it without being a user edit.
+const dirtySignature = (p) =>
+  JSON.stringify([
+    p.filters || {},
+    p.order_by,
+    p.view?.group_by_field,
+    p.column_field,
+    p.title_field,
+    p.kanban_fields,
+  ])
+const initialParams = getParams()
+if (!listResource.params) {
+  listResource.params = initialParams
+} else if (
+  dirtySignature(listResource.params) !== dirtySignature(initialParams)
+) {
+  viewUpdated.value = true
+}
 
 const isLoading = computed(() => list.value?.loading)
 
+function getListParams() {
+  if (!listResource.params) listResource.params = getParams()
+  return listResource.params
+}
+
 function reload() {
   if (isLoading.value) return
-  list.value.params = getParams()
-  list.value.reload()
+  listResource.params = getParams()
+  listResource.reload()
 }
 
 const showExportDialog = ref(false)
@@ -574,11 +624,32 @@ function updateSelections(selections) {
 
 async function exportRows() {
   let fields = JSON.stringify(list.value.data.columns.map((f) => f.key))
-
-  let filters = JSON.stringify({
+  const userId = getUser()?.name
+  let filters = {
     ...props.filters,
     ...list.value.params.filters,
-  })
+  }
+
+  // Only resolve @me placeholders when we know the current user; otherwise
+  // leave filters untouched rather than emitting undefined / "%undefined%".
+  if (userId) {
+    Object.keys(filters).forEach((key) => {
+      const value = filters[key]
+
+      // Handle direct filter format: { owner: "@me" }
+      if (value === '@me') {
+        filters[key] = userId
+        return
+      }
+      if (!Array.isArray(value)) return
+      // Handle all operator-based filter format: { owner: ["=", "@me"], _assign: ["LIKE", "%@me%"] }
+      filters[key] = value.map((entry) =>
+        entry === '@me' ? userId : entry === '%@me%' ? `%${userId}%` : entry,
+      )
+    })
+  }
+
+  filters = JSON.stringify(filters)
 
   let order_by = list.value.params.order_by
   let page_length = list.value.params.page_length
@@ -644,6 +715,11 @@ function getIcon(icon, type) {
     return markRaw(GroupByIcon)
   } else if (!icon && type === 'kanban') {
     return markRaw(KanbanIcon)
+  } else if (icon && typeof icon === 'string') {
+    // a lucide icon name (from the IconPicker) — render it through Icon so it
+    // resolves from the injected lucide sprite. The Dropdown renders a bare
+    // string via FeatherIcon, which lacks the newer lucide names and shows blank.
+    return () => h(Icon, { icon, class: 'h-4 w-4' })
   }
   return icon || markRaw(ListIcon)
 }
@@ -653,7 +729,10 @@ const viewsDropdownOptions = computed(() => {
     {
       group: __('Standard Views'),
       hideLabel: true,
-      items: standardViews,
+      items: standardViews.map((item) => ({
+        ...item,
+        selected: item.name === currentView.value.name,
+      })),
     },
   ]
 
@@ -662,6 +741,7 @@ const viewsDropdownOptions = computed(() => {
       view.label = __(view.label)
       view.type = view.type || 'list'
       view.icon = getIcon(view.icon, view.type)
+      view.selected = view.name === currentView.value.name
       view.filters =
         typeof view.filters == 'string'
           ? JSON.parse(view.filters)
@@ -775,20 +855,8 @@ const quickFilterOptions = computed(() => {
   if (!fields) return []
 
   let existingQuickFilters = newQuickFilters.value.map((f) => f.fieldname)
-  let restrictedFieldtypes = [
-    'Tab Break',
-    'Section Break',
-    'Column Break',
-    'Table',
-    'Table MultiSelect',
-    'HTML',
-    'Button',
-    'Image',
-    'Fold',
-    'Heading',
-  ]
   let options = fields
-    .filter((f) => f.label && !restrictedFieldtypes.includes(f.fieldtype))
+    .filter((f) => f.label)
     .filter((f) => !existingQuickFilters.includes(f.fieldname))
     .map((field) => ({
       label: field.label,
@@ -809,11 +877,12 @@ const quickFilterOptions = computed(() => {
 
 const quickFilterList = computed(() => {
   let filters = quickFilters.data || []
+  let params = getListParams()
 
   filters.forEach((filter) => {
     filter['value'] = filter.fieldtype == 'Check' ? false : ''
-    if (list.value.params?.filters[filter.fieldname]) {
-      let value = list.value.params.filters[filter.fieldname]
+    if (params?.filters?.[filter.fieldname]) {
+      let value = params.filters[filter.fieldname]
       if (Array.isArray(value)) {
         if (
           (['Check', 'Select', 'Link', 'Date', 'Datetime'].includes(
@@ -846,6 +915,160 @@ const quickFilters = createResource({
 
 if (!quickFilters.data) quickFilters.fetch()
 
+const filterableFields = createResource({
+  url: 'crm.api.doc.get_filterable_fields',
+  params: { doctype: props.doctype },
+  cache: ['filterableFields', props.doctype],
+})
+
+const flatFilterOptions = ref({})
+
+useCommandPaletteContext(() => listCommands())
+
+watch(commandPaletteOpen, (open) => {
+  if (open && !Object.keys(flatFilterOptions.value).length) {
+    loadFlatFilterOptions()
+  }
+})
+
+function listCommands() {
+  return [
+    {
+      id: `list-views-${props.doctype}`,
+      title: 'Switch view',
+      group: 'List',
+      icon: 'panels-top-left',
+      children: async () => viewCommands(),
+    },
+    {
+      id: `list-filters-${props.doctype}`,
+      title: 'Filter list',
+      group: 'List',
+      icon: 'list-filter',
+      children: async () => filterCommands(),
+    },
+    {
+      id: `list-refresh-${props.doctype}`,
+      title: 'Refresh list',
+      group: 'List',
+      icon: 'refresh-cw',
+      perform: reload,
+    },
+    ...flatFilterCommands(),
+  ]
+}
+
+// One row per quick filter value, so typing "qualified" applies it in one Enter.
+function flatFilterCommands() {
+  return quickFilterList.value
+    .filter(isFilterableField)
+    .flatMap((filter) =>
+      (flatFilterOptions.value[filter.fieldname] || []).map((option) =>
+        flatFilterCommand(filter, option),
+      ),
+    )
+}
+
+function flatFilterCommand(filter, option) {
+  return {
+    id: `list-filter-flat-${filter.fieldname}-${option.value}`,
+    title: `${filter.label}: ${option.label}`,
+    translate: false,
+    group: 'List',
+    icon: 'list-filter',
+    hideWhenEmpty: true,
+    keywords: option.label,
+    checked: currentFilterValue(filter) === option.value,
+    perform: () => applyQuickFilter(filter, option.value),
+  }
+}
+
+async function loadFlatFilterOptions() {
+  const filters = quickFilterList.value.filter(isFilterableField)
+  const entries = await Promise.all(
+    filters.map(async (filter) => [
+      filter.fieldname,
+      await commandFilterOptions(filter),
+    ]),
+  )
+  flatFilterOptions.value = Object.fromEntries(entries)
+}
+
+function viewCommands() {
+  return viewsDropdownOptions.value
+    .flatMap((group) => group.items || [])
+    .filter((item) => item.onClick && (!item.condition || item.condition()))
+    .map((item, index) => ({
+      id: `list-view-${index}-${item.name || item.label}`,
+      title: item.label,
+      icon: item.icon,
+      checked: item.selected,
+      perform: item.onClick,
+    }))
+}
+
+async function filterCommands() {
+  const quick = quickFilterList.value.filter(isFilterableField)
+  const configured = new Set(quick.map((filter) => filter.fieldname))
+  const commands = [
+    ...quick.map((filter) => filterFieldCommand(filter, 'Quick filters')),
+    ...(await otherFilterFields(configured)).map((field) =>
+      filterFieldCommand(field, 'All fields'),
+    ),
+  ]
+  if (Object.keys(list.value.params?.filters || {}).length) {
+    commands.unshift({
+      id: `list-filter-clear-${props.doctype}`,
+      title: 'Clear all filters',
+      icon: 'filter-x',
+      perform: () => updateFilter({}),
+    })
+  }
+  return commands
+}
+
+function isFilterableField(field) {
+  return (
+    FILTERABLE_FIELDTYPES.includes(field.fieldtype) &&
+    field.fieldname !== 'name'
+  )
+}
+
+async function otherFilterFields(configured) {
+  if (!filterableFields.data) await filterableFields.fetch()
+  return (filterableFields.data || []).filter(
+    (field) => isFilterableField(field) && !configured.has(field.fieldname),
+  )
+}
+
+function filterFieldCommand(filter, group) {
+  return {
+    id: `list-filter-${filter.fieldname}`,
+    title: filter.label,
+    group,
+    icon: 'list-filter',
+    children: async () => quickFilterOptionCommands(filter),
+  }
+}
+
+async function quickFilterOptionCommands(filter) {
+  const options = await commandFilterOptions(filter)
+  const current = currentFilterValue(filter)
+  return options.map((option) => ({
+    id: `list-filter-${filter.fieldname}-${option.value}`,
+    title: option.label,
+    translate: false,
+    checked: current === option.value,
+    perform: () => applyQuickFilter(filter, option.value),
+  }))
+}
+
+function currentFilterValue(filter) {
+  const value = list.value.params?.filters?.[filter.fieldname]
+  if (Array.isArray(value)) return String(value[1] ?? '').replace(/%/g, '')
+  return value ?? filter.value
+}
+
 function setupNewQuickFilters(filters) {
   newQuickFilters.value = filters.map((f) => ({
     label: f.label,
@@ -855,7 +1078,7 @@ function setupNewQuickFilters(filters) {
 }
 
 function applyQuickFilter(filter, value) {
-  let filters = { ...list.value.params.filters }
+  let filters = { ...getListParams().filters }
   let field = filter.fieldname
   if (value) {
     if (
@@ -878,10 +1101,10 @@ function updateFilter(filters) {
   if (!defaultParams.value) {
     defaultParams.value = getParams()
   }
-  list.value.params = defaultParams.value
-  list.value.params.filters = filters
+  listResource.params = defaultParams.value
+  listResource.params.filters = filters
   view.value.filters = filters
-  list.value.reload()
+  listResource.reload()
 
   if (!route.query.view) {
     createOrUpdateStandardView()
@@ -949,17 +1172,35 @@ function updateColumns(obj) {
 
   if (!route.query.view) {
     createOrUpdateStandardView()
+  } else if (!view.value.public) {
+    persistCustomView()
   }
 }
 
-async function updateKanbanSettings(data) {
+function persistCustomView() {
+  view.value.doctype = props.doctype
+  call('crm.fcrm.doctype.crm_view_settings.crm_view_settings.update', {
+    view: view.value,
+  }).then(() => {
+    reloadView()
+    viewUpdated.value = false
+  })
+}
+
+function updateKanbanSettings(data) {
   if (data.item && data.to) {
-    await call('frappe.client.set_value', {
+    call('frappe.client.set_value', {
       doctype: props.doctype,
       name: data.item,
       fieldname: view.value.column_field,
       value: data.to,
     })
+    return
+  }
+
+  if (data.fetchNewColumns) {
+    fetchAndUpdateKanbanColumns(view.value)
+    return
   }
 
   viewUpdated.value = true
@@ -1013,6 +1254,22 @@ function loadMoreKanban(columnName) {
   list.value.reload()
 }
 
+// Saving the standard view re-reads the views store so it matches the server,
+// which trips the `getView` watcher below into rebuilding the list params from
+// the store. For our own save that only replays state already applied locally,
+// and when two saves overlap (quick filter typing) the earlier re-read can land
+// last and rewind the filters — and the quick filter input — to the older
+// value (#2113). Count these re-reads so the watcher leaves the params alone.
+let pendingSelfViewReloads = 0
+
+function reloadViewAfterSave() {
+  pendingSelfViewReloads++
+  return reloadView().catch((e) => {
+    pendingSelfViewReloads--
+    throw e
+  })
+}
+
 function createOrUpdateStandardView() {
   if (route.query.view) return
   view.value.doctype = props.doctype
@@ -1022,7 +1279,7 @@ function createOrUpdateStandardView() {
       view: view.value,
     },
   ).then(() => {
-    reloadView()
+    reloadViewAfterSave()
     view.value = {
       label: view.value.label,
       type: view.value.type || 'list',
@@ -1161,7 +1418,7 @@ const viewActions = (view, close) => {
 }
 
 function isDefaultView(v) {
-  let defaultView = getDefaultView()
+  let defaultView = getDefaultView(route.name)
 
   if (!defaultView || !v.name) return false
 
@@ -1238,6 +1495,19 @@ function deleteView(v, close) {
   close()
 }
 
+function fetchAndUpdateKanbanColumns(v) {
+  call(
+    'crm.fcrm.doctype.crm_view_settings.crm_view_settings.fetch_and_update_kanban_columns',
+    {
+      name: v.name,
+    },
+  ).then((columns) => {
+    list.value.params.kanban_columns = columns
+    view.value.kanban_columns = columns
+    list.value.reload()
+  })
+}
+
 function cancelChanges() {
   reload()
   viewUpdated.value = false
@@ -1267,18 +1537,18 @@ function saveView() {
 }
 
 function applyFilter({ event, idx, column, item, firstColumn }) {
-  let restrictedFieldtypes = ['Duration', 'Datetime', 'Time']
+  let restrictedFieldtypes = ['Datetime', 'Time']
   if (restrictedFieldtypes.includes(column.type) || idx === 0) return
   if (idx === 1 && firstColumn.key == '_liked_by') return
 
   event.stopPropagation()
   event.preventDefault()
 
-  let filters = { ...list.value.params.filters }
+  let filters = { ...getListParams().filters }
 
-  let value = item.name || item.label || item
+  let value = item.name ?? item.label ?? item
 
-  if (value) {
+  if (value !== null && value !== undefined && value !== '') {
     filters[column.key] = value
   } else {
     delete filters[column.key]
@@ -1299,7 +1569,7 @@ function applyFilter({ event, idx, column, item, firstColumn }) {
 }
 
 function applyLikeFilter() {
-  let filters = { ...list.value.params.filters }
+  let filters = { ...getListParams().filters }
   if (!filters._liked_by) {
     filters['_liked_by'] = ['LIKE', '%@me%']
   } else {
@@ -1322,6 +1592,7 @@ defineExpose({
   applyLikeFilter,
   likeDoc,
   updateKanbanSettings,
+  fetchAndUpdateKanbanColumns,
   loadMoreKanban,
   viewActions,
   viewsDropdownOptions,
@@ -1333,6 +1604,10 @@ defineExpose({
 watch(
   () => getView(route.query.view, route.params.viewType, props.doctype),
   (value, old_value) => {
+    if (pendingSelfViewReloads > 0) {
+      pendingSelfViewReloads--
+      return
+    }
     if (_.isEqual(value, old_value)) return
     reload()
   },

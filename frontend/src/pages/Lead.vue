@@ -48,18 +48,26 @@
         </template>
       </Dropdown>
       <!-- Convert to Deal button hidden per Kiwi customization -->
-      <!-- <Button
-        :label="__('Convert to Deal')"
-        variant="solid"
-        @click="showConvertToDealModal = true"
-      /> -->
+      <!-- <Tooltip
+        :disabled="!isLeadConversionDisabled"
+        :text="__('Cannot convert a lost lead to deal')"
+      >
+        <div class="inline-flex">
+          <Button
+            :label="__('Convert to Deal')"
+            variant="solid"
+            :disabled="isLeadConversionDisabled"
+            @click="showConvertToDealModal = true"
+          />
+        </div>
+      </Tooltip> -->
     </template>
   </LayoutHeader>
   <div v-if="doc.name" class="flex h-full overflow-hidden">
     <Tabs
       v-model="tabIndex"
       :tabs="tabs"
-      class="flex flex-1 overflow-hidden flex-col [&_[role='tab']]:px-0 [&_[role='tablist']]:px-5 [&_[role='tablist']]:gap-7.5 [&_[role='tabpanel']:not([hidden])]:flex [&_[role='tabpanel']:not([hidden])]:grow"
+      class="flex flex-1 overflow-hidden flex-col [&_[role='tab']]:px-0 [&_[role='tab']]:shrink-0 [&_[role='tablist']]:px-5 [&_[role='tablist']::-webkit-scrollbar]:h-0 [&_[role='tablist']]:min-h-[45px] [&_[role='tablist']]:gap-7.5 [&_[role='tabpanel']:not([hidden])]:flex [&_[role='tabpanel']:not([hidden])]:grow"
     >
       <template #tab-panel="{ tab }">
         <div v-if="tab.name === 'Tickets'" class="flex flex-1 flex-col overflow-hidden">
@@ -103,13 +111,13 @@
           :docname="leadId"
           :tabs="tabs"
           @beforeSave="beforeStatusChange"
-          @afterSave="reloadAssignees"
+          @afterSave="reloadResources"
         />
       </template>
     </Tabs>
     <Resizer class="flex flex-col justify-between border-l" side="right">
       <div
-        class="flex h-[45px] cursor-copy items-center border-b px-5 py-2.5 text-lg font-medium text-ink-gray-9"
+        class="flex h-[45px] cursor-copy items-center border-b px-5 py-2.5 text-lg-medium text-ink-gray-9"
         @click="copyToClipboard(leadId)"
       >
         {{ __(leadId) }}
@@ -164,7 +172,7 @@
             </div>
             <div class="flex flex-col gap-2.5 truncate">
               <Tooltip :text="doc.lead_name || __('Set First Name')">
-                <div class="truncate text-2xl font-medium text-ink-gray-9">
+                <div class="truncate text-3xl-medium text-ink-gray-9">
                   {{ title }}
                 </div>
               </Tooltip>
@@ -215,7 +223,7 @@
                   :tooltip="__('Delete')"
                   variant="subtle"
                   theme="red"
-                  icon="trash-2"
+                  icon="lucide-trash-2"
                   @click="deleteLead"
                 />
               </div>
@@ -239,7 +247,7 @@
           :docname="leadId"
           @reload="sections.reload"
           @beforeFieldChange="beforeStatusChange"
-          @afterFieldChange="reloadAssignees"
+          @afterFieldChange="reloadResources"
         />
       </div>
     </Resizer>
@@ -270,6 +278,7 @@
     v-model="showDeleteLinkedDocModal"
     :doctype="'CRM Lead'"
     :docname="leadId"
+    :title="doc.lead_name"
     name="Leads"
   />
   <LostReasonModal
@@ -325,7 +334,11 @@ import { globalStore } from '@/stores/global'
 import { statusesStore } from '@/stores/statuses'
 import { getMeta } from '@/stores/meta'
 import { useDocument } from '@/data/document'
-import { whatsappEnabled, callEnabled } from '@/composables/settings'
+import { whatsappEnabled } from '@/composables/whatsapp'
+import { callEnabled } from '@/composables/telephony'
+import { useCommandPaletteContext } from '@/composables/useCommandPalette'
+import { flattenCommandActions } from '@/utils/commandPalette'
+import { recordCommands } from '@/components/CommandPalette/recordCommands'
 import {
   createResource,
   FileUploader,
@@ -341,9 +354,11 @@ import {
   ListView,
   ListRowItem,
 } from 'frappe-ui'
-import { ref, computed, watch, nextTick, h } from 'vue'
+import { ref, computed, watch, nextTick, h, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useActiveTabManager } from '@/composables/useActiveTabManager'
+import { useUnsavedChangesWarning } from '@/composables/useUnsavedChangesWarning'
+import { useVisitedRecords } from '@/composables/useVisitedRecords'
 
 const { brand } = getSettings()
 const { $dialog, $socket, makeCall } = globalStore()
@@ -365,21 +380,40 @@ const showDeleteLinkedDocModal = ref(false)
 const showConvertToDealModal = ref(false)
 const showFilesUploader = ref(false)
 
-const { triggerOnChange, assignees, permissions, document, scripts, error } =
-  useDocument('CRM Lead', props.leadId)
+const {
+  triggerOnChange,
+  triggerOnRender,
+  assignees,
+  permissions,
+  document,
+  scripts,
+  error,
+} = useDocument('CRM Lead', props.leadId)
 
 const canDelete = computed(() => permissions.data?.permissions?.delete || false)
 
 const doc = computed(() => document.doc || {})
+const isLeadConversionDisabled = computed(
+  () => doc.value.status && getLeadStatus(doc.value.status)?.type === 'Lost',
+)
+
+useUnsavedChangesWarning(() => document.isDirty)
+
+const { markVisited } = useVisitedRecords('CRM Lead')
+
+onMounted(async () => {
+  if (document.doc) await triggerOnRender()
+  markVisited(props.leadId)
+})
 
 watch(error, (err) => {
   if (err) {
     errorTitle.value = __(
       err.exc_type == 'DoesNotExistError'
-        ? 'Document not found'
-        : 'Error occurred',
+        ? __('Document not found')
+        : __('Error occurred'),
     )
-    errorMessage.value = __(err.messages?.[0] || 'An error occurred')
+    errorMessage.value = __(err.messages?.[0] || __('An error occurred'))
   } else {
     errorTitle.value = ''
     errorMessage.value = ''
@@ -428,7 +462,11 @@ const breadcrumbs = computed(() => {
 
   items.push({
     label: title.value,
-    route: { name: 'Lead', params: { leadId: props.leadId } },
+    route: {
+      name: 'Lead',
+      params: { leadId: props.leadId },
+      query: route.query,
+    },
   })
   return items
 })
@@ -444,6 +482,132 @@ const statuses = computed(() => {
     : document._statuses || []
   return statusOptions('lead', customStatuses, triggerStatusChange)
 })
+
+useCommandPaletteContext(() => leadCommands())
+
+function leadCommands() {
+  const commands = [
+    statusCommand(),
+    ...flatStatusCommands(),
+    ...recordCommands(paletteContext()),
+    ...communicationCommands(),
+  ]
+  commands.push(...scriptCommands())
+  if (!isLeadConversionDisabled.value)
+    commands.push({
+      id: 'lead-convert',
+      title: 'Convert to deal',
+      group: 'Lead',
+      icon: 'repeat-2',
+      perform: () => (showConvertToDealModal.value = true),
+    })
+  if (canDelete.value) commands.push(deleteLeadCommand())
+  return commands
+}
+
+function paletteContext() {
+  return {
+    doctype: 'CRM Lead',
+    docname: props.leadId,
+    group: 'Lead',
+    assignees,
+    tabs,
+    changeTabTo,
+    activities: () => activities.value,
+    hasEmail: () => Boolean(doc.value?.email),
+    openEmailBox,
+    openFileUploader: () => (showFilesUploader.value = true),
+  }
+}
+
+function statusCommand() {
+  return {
+    id: 'lead-status',
+    title: 'Change status',
+    group: 'Lead',
+    icon: 'circle-dot',
+    children: async () => statusChildren(statuses.value),
+  }
+}
+
+function statusChildren(options) {
+  return options.map((option) => ({
+    id: `lead-status-${option.label}`,
+    title: option.label,
+    translate: false,
+    icon: option.icon,
+    checked: option.value === doc.value.status,
+    perform: option.onClick,
+  }))
+}
+
+// Typing a status name sets it in one Enter, without drilling in.
+function flatStatusCommands() {
+  return statuses.value.map((option) => ({
+    id: `lead-status-flat-${option.label}`,
+    title: __('Set status: {0}', [option.label]),
+    translate: false,
+    group: 'Lead',
+    icon: option.icon,
+    hideWhenEmpty: true,
+    keywords: option.label,
+    checked: option.value === doc.value.status,
+    perform: option.onClick,
+  }))
+}
+
+function communicationCommands() {
+  const commands = []
+  if (doc.value.email) {
+    commands.push({
+      id: 'lead-email',
+      title: 'Send email',
+      group: 'Lead',
+      icon: 'mail',
+      perform: openEmailBox,
+    })
+  }
+  if (doc.value.mobile_no && callEnabled.value) {
+    commands.push({
+      id: 'lead-call',
+      title: 'Make a call',
+      group: 'Lead',
+      icon: 'phone',
+      perform: () => makeCall(doc.value.mobile_no),
+    })
+  }
+  return commands
+}
+
+function scriptCommands() {
+  return flattenCommandActions([
+    ...(document._actions || []),
+    ...(document.actions || []),
+  ])
+    .filter(
+      (action) =>
+        action.label &&
+        action.onClick &&
+        (!action.condition || action.condition()),
+    )
+    .map((action, index) => ({
+      id: `lead-script-${index}-${action.label}`,
+      title: action.label,
+      group: 'Lead',
+      icon: action.icon || 'zap',
+      perform: () => action.onClick(() => {}),
+    }))
+}
+
+function deleteLeadCommand() {
+  return {
+    id: 'lead-delete',
+    title: 'Delete lead',
+    group: 'Lead',
+    icon: 'trash-2',
+    perform: deleteLead,
+  }
+}
 
 usePageMeta(() => {
   return { title: title.value, icon: brand.favicon }
@@ -620,13 +784,12 @@ function updateField(name, value) {
 
   document.save.submit(null, {
     onSuccess: () => (reload.value = true),
-    onError: (err) => {
+    onError: () => {
       if (Array.isArray(name)) {
         name.forEach((field) => (doc.value[field] = oldValues[field]))
       } else {
         doc.value[name] = oldValues
       }
-      toast.error(err.messages?.[0] || __('Error updating field'))
     },
   })
 }
@@ -640,7 +803,7 @@ function openEmailBox() {
   if (!['Emails', 'Comments', 'Activities'].includes(currentTab.name)) {
     activities.value.changeTabTo('emails')
   }
-  nextTick(() => (activities.value.emailBox.show = true))
+  nextTick(() => activities.value.emailBox?.openEmailBox())
 }
 
 function statusLabel(status) {
@@ -657,7 +820,9 @@ function setLostReason() {
     (document.doc.lost_reason && document.doc.lost_reason !== 'Other') ||
     (document.doc.lost_reason === 'Other' && document.doc.lost_notes)
   ) {
-    document.save.submit()
+    document.save.submit(null, {
+      onSuccess: () => sections.reload(),
+    })
     return
   }
 
@@ -683,14 +848,20 @@ function beforeStatusChange(data) {
     setLostReason()
   } else {
     document.save.submit(null, {
-      onSuccess: () => reloadAssignees(data),
+      onSuccess: () => reloadResources(data),
     })
   }
 }
 
-function reloadAssignees(data) {
+function reloadResources(data) {
   if (Object.hasOwn(data ?? {}, 'lead_owner')) {
     assignees.reload()
+  }
+  if (
+    Object.hasOwn(data ?? {}, 'status') &&
+    getLeadStatus(data.status).type != 'Lost'
+  ) {
+    sections.reload()
   }
 }
 </script>

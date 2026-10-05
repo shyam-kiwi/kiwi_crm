@@ -208,20 +208,6 @@
     v-model="showTicketModal"
     :defaults="defaults"
   />
-  <NoteModal
-    v-if="showNoteModal"
-    v-model="showNoteModal"
-    :note="note"
-    doctype="HD Ticket"
-    :doc="docname"
-  />
-  <TaskModal
-    v-if="showTaskModal"
-    v-model="showTaskModal"
-    :task="task"
-    doctype="HD Ticket"
-    :doc="docname"
-  />
 </template>
 
 <script setup>
@@ -239,8 +225,7 @@ import TicketsListView from '@/components/ListViews/TicketsListView.vue'
 import EmptyState from '@/components/ListViews/EmptyState.vue'
 import KanbanView from '@/components/Kanban/KanbanView.vue'
 import TicketModal from '@/components/Modals/TicketModal.vue'
-import NoteModal from '@/components/Modals/NoteModal.vue'
-import TaskModal from '@/components/Modals/TaskModal.vue'
+import { useDoctypeModal } from '@/composables/doctypeModal'
 import ViewControls from '@/components/ViewControls.vue'
 import { getMeta } from '@/stores/meta'
 import { usersStore } from '@/stores/users'
@@ -486,30 +471,29 @@ function actions(itemName) {
   )
 }
 
-const docname = ref('')
-const showNoteModal = ref(false)
-const note = ref({
-  title: '',
-  content: '',
-})
+const { showModal } = useDoctypeModal()
 
 function showNote(name) {
-  docname.value = name
-  showNoteModal.value = true
+  showModal({
+    doctype: 'FCRM Note',
+    title: 'Note',
+    defaults: {
+      reference_doctype: 'HD Ticket',
+      reference_docname: name,
+    },
+  })
 }
 
-const showTaskModal = ref(false)
-const task = ref({
-  title: '',
-  description: '',
-  assigned_to: '',
-  due_date: '',
-  priority: 'Low',
-  status: 'Todo',
-})
-
 function showTask(name) {
-  docname.value = name
-  showTaskModal.value = true
+  showModal({
+    doctype: 'CRM Task',
+    title: 'Task',
+    defaults: {
+      status: 'Todo',
+      priority: 'Low',
+      reference_doctype: 'HD Ticket',
+      reference_docname: name,
+    },
+  })
 }
 </script>
